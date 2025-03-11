@@ -1,205 +1,188 @@
 package main
 
 import (
-	"ai-assignment-2/vars"
+	"encoding/csv"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
-	"sort"
 	"time"
 )
 
-type Action int
-
 const (
-	Cooperate Action = iota
-	Defect
+	AlwaysCooperateStr = "AlwaysCooperate"
+	AlwaysDefectStr    = "AlwaysDefect"
+	GrimTriggerStr     = "GrimTrigger"
+	TitForTatStr   = "TitForTat"
 )
 
-type Strategy interface {
-	Play(opponentHistory []Action) Action
-	Name() string
+type Variables struct {
+	Population     int
+	GeneLength     int
+	NumGenerations int
+	TournamentSize int
+	MutationRate   float64
 }
 
-type AlwaysCooperate struct{}
-
-func (ac AlwaysCooperate) Play(_ []Action) Action {
-	return Cooperate
-}
-
-func (ac AlwaysCooperate) Name() string {
-	return "Always Cooperate"
-}
-
-type AlwaysDefect struct{}
-
-func (ad AlwaysDefect) Play(_ []Action) Action {
-	return Defect
-}
-
-func (ad AlwaysDefect) Name() string {
-	return "Always Defect"
-}
-
-type TitForTat struct{}
-
-func (tft TitForTat) Play(history []Action) Action {
-	if len(history) == 0 {
-		return Cooperate
+func GetVariables() Variables {
+	return Variables{
+		Population:     100,
+		GeneLength:     10,
+		NumGenerations: 500,
+		TournamentSize: 5,
+		MutationRate:   0.1,
 	}
-	return history[len(history)-1]
-}
-
-func (tft TitForTat) Name() string {
-	return "Tit-for-Tat"
-}
-
-var payoffMatrix = map[Action]map[Action][2]int{
-	Cooperate: {Cooperate: {3, 3}, Defect: {0, 5}},
-	Defect:    {Cooperate: {5, 0}, Defect: {1, 1}},
 }
 
 type Individual struct {
-	Gene   []Action
-	Score  int
+	Strategy string
+	Score    float64
 }
 
-func playMatch(s1, s2 Strategy, rounds int) (int, int) {
-	history1 := []Action{}
-	history2 := []Action{}
-	
-	score1, score2 := 0, 0
-	for i := 0; i < rounds; i++ {
-		move1 := s1.Play(history2)
-		move2 := s2.Play(history1)
-		result := payoffMatrix[move1][move2]
-		score1 += result[0]
-		score2 += result[1]
-		history1 = append(history1, move1)
-		history2 = append(history2, move2)
+var payoffMatrix = map[string]map[string][2]int{
+	"C": {"C": {3, 3}, "D": {0, 5}},
+	"D": {"C": {5, 0}, "D": {1, 1}},
+}
+
+func AlwaysCooperate(_ string) string { return "C" }
+func AlwaysDefect(_ string) string    { return "D" }
+func TitForTat(lastMove string) string {
+	if lastMove == "" {
+		return "C"
 	}
-	return score1, score2
+	return lastMove
 }
-
-func generateRandomIndividual(length int) Individual {
-	gene := make([]Action, length)
-	for i := range gene {
-		gene[i] = Action(rand.Intn(2))
+func GrimTrigger(lastMove string) string {
+	if lastMove == "D" {
+		return "D"
 	}
-	return Individual{Gene: gene, Score: 0}
+	return "C"
 }
 
-func evaluateFitness(population []Individual, opponents []Strategy) {
+func getStrategy(strategy string) func(string) string {
+	switch strategy {
+	case AlwaysCooperateStr:
+		return AlwaysCooperate
+	case AlwaysDefectStr:
+		return AlwaysDefect
+	case TitForTatStr:
+		return TitForTat
+	case GrimTriggerStr:
+		return GrimTrigger
+	}
+	log.Println("Invalid strategy, defaulting to TitForTat")
+	return TitForTat
+}
+
+func initPopulation(populationSize int) []Individual {
+	strategies := []string{AlwaysCooperateStr, AlwaysDefectStr, TitForTatStr, GrimTriggerStr}
+	population := make([]Individual, populationSize)
 	for i := range population {
-		totalScore := 0
-		for _, opponent := range opponents {
-			individualStrategy := RandomStrategy{Gene: population[i].Gene}
-			score, _ := playMatch(individualStrategy, opponent, 100)
-			totalScore += score
+		population[i] = Individual{Strategy: strategies[rand.Intn(len(strategies))]}
+	}
+	return population
+}
+
+func playMatch(s1, s2 func(string) string, rounds int) float64 {
+	var score int
+	var lastMove1, lastMove2 string
+
+	for i := 0; i < rounds; i++ {
+		m1, m2 := s1(lastMove2), s2(lastMove1)
+		score += payoffMatrix[m1][m2][0]
+		lastMove1, lastMove2 = m1, m2
+	}
+	return float64(score) / float64(rounds)
+}
+
+
+func evaluateFitness(population []Individual, fixedStrategies []func(string) string) []Individual {
+	for i := range population {
+		population[i].Score = 0
+		for _, fixedStrategy := range fixedStrategies {
+			score := playMatch(getStrategy(population[i].Strategy), fixedStrategy, 50)
+			population[i].Score += score		
 		}
-		population[i].Score = totalScore
 	}
+	return population
 }
 
-type RandomStrategy struct {
-	Gene []Action
-}
-
-func (rs RandomStrategy) Play(history []Action) Action {
-	if len(history) < len(rs.Gene) {
-		return rs.Gene[len(history)]
+func crossover(parent1, parent2 Individual) Individual {
+	childStrategy := parent1.Strategy
+	if rand.Float32() < 0.5 {
+		childStrategy = parent2.Strategy
 	}
-	return rs.Gene[rand.Intn(len(rs.Gene))]
+	return Individual{Strategy: childStrategy}
 }
 
-func (rs RandomStrategy) Name() string {
-	return "Evolved Strategy"
+func mutate(ind Individual, mutationRate float64) Individual {
+	strategies := []string{AlwaysCooperateStr, AlwaysDefectStr, TitForTatStr, GrimTriggerStr}
+	if rand.Float64() < mutationRate {
+		ind.Strategy = strategies[rand.Intn(len(strategies))]
+	}
+	return ind
 }
 
-func tournamentSelection(pop []Individual, k int) Individual {
-	best := pop[rand.Intn(len(pop))]
-	for i := 1; i < k; i++ {
-		contender := pop[rand.Intn(len(pop))]
-		if contender.Score > best.Score {
-			best = contender
+func TournamentSelection(population []Individual, tournamentSize int) Individual {
+	best := population[rand.Intn(len(population))]
+	for i := 1; i < tournamentSize; i++ {
+		competitor := population[rand.Intn(len(population))]
+		if competitor.Score > best.Score {
+			best = competitor
 		}
 	}
 	return best
 }
 
-func crossover(parent1, parent2 Individual) Individual {
-	point := rand.Intn(len(parent1.Gene))
-	newGene := append(parent1.Gene[:point], parent2.Gene[point:]...)
-	return Individual{Gene: newGene, Score: 0}
-}
-
-func mutate(ind Individual, mutationRate float64) Individual {
-	for i := range ind.Gene {
-		if rand.Float64() < mutationRate {
-			ind.Gene[i] = Action(rand.Intn(2))
-		}
+func evolvePopulation(population []Individual, tournamentSize int, mutationRate float64) []Individual {
+	newPopulation := make([]Individual, len(population))
+	for i := range population {
+		parent1 := TournamentSelection(population, tournamentSize)
+		parent2 := TournamentSelection(population, tournamentSize)
+		child := crossover(parent1, parent2)
+		child = mutate(child, mutationRate)
+		newPopulation[i] = child
 	}
-	return ind
+	return newPopulation
 }
 
-func calculateAverageScore(population []Individual) float64 {
-	totalScore := 0
-	for _, individual := range population {
-		totalScore += individual.Score
-	}
-	return float64(totalScore) / float64(len(population))
-}
+func geneticAlgorithm(vars Variables) {
+	population := initPopulation(vars.Population)
+	fixedStrategies := []func(string) string{AlwaysCooperate, AlwaysDefect, TitForTat, GrimTrigger}
 
-func logScoresToFile(filename string, generation int, bestScore int, averageScore float64) {
-	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// CSV File Setup
+	file, err := os.Create("fitness_data.csv")
 	if err != nil {
-		fmt.Println("Error opening file:", err)
+		fmt.Println("Error creating file:", err)
 		return
 	}
 	defer file.Close()
-	logLine := fmt.Sprintf("Generation %d: Best Score = %d, Average Score = %.2f\n", generation, bestScore, averageScore)
-	if _, err := file.WriteString(logLine); err != nil {
-		fmt.Println("Error writing to file:", err)
-	}
-}
 
-func evolvePopulation(population []Individual, opponents []Strategy, generations int) {
-	logFilename := "evolution_log.txt"
-	elitismCount := len(population) / 10 // Preserve top 10%
-	for gen := 0; gen < generations; gen++ {
-		evaluateFitness(population, opponents)
-		sort.Slice(population, func(i, j int) bool {
-			return population[i].Score > population[j].Score
-		})
-		
-		bestScore := population[0].Score
-		averageScore := calculateAverageScore(population)
-		fmt.Printf("Generation %d: Best Score = %d, Average Score = %.2f\n", gen, bestScore, averageScore)
-		logScoresToFile(logFilename, gen, bestScore, averageScore)
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+	writer.Write([]string{"Generation", "AverageFitness"})
 
-		newPopulation := make([]Individual, 0, len(population))
-		newPopulation = append(newPopulation, population[:elitismCount]...)
-		
-		for i := elitismCount; i < len(population); i++ {
-			parent1 := tournamentSelection(population, 3)
-			parent2 := tournamentSelection(population, 3)
-			child := crossover(parent1, parent2)
-			child = mutate(child, 0.02)
-			newPopulation = append(newPopulation, child)
+	for gen := 0; gen < vars.NumGenerations; gen++ {
+		population = evaluateFitness(population, fixedStrategies)
+
+		// Calculate average fitness
+		var totalFitness float64
+		for _, ind := range population {
+			totalFitness += ind.Score
 		}
-		population = newPopulation
+		avgFitness := totalFitness / float64(len(population))
+		fmt.Printf("Generation %d: Average Fitness = %.2f\n", gen, avgFitness)
+
+		// Log to CSV
+		writer.Write([]string{fmt.Sprintf("%d", gen), fmt.Sprintf("%.2f", avgFitness)})
+
+		// Evolve the population
+		population = evolvePopulation(population, vars.TournamentSize, vars.MutationRate)
 	}
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
-	strategies := []Strategy{AlwaysCooperate{}, AlwaysDefect{}, TitForTat{}}
-	
-	variables := vars.GetVariables()
-
-	population := make([]Individual, variables.Population)
-	for i := range population {
-		population[i] = generateRandomIndividual(variables.GeneLength)
-	}
-	evolvePopulation(population, strategies, variables.NumGenerations)
+	rand.Seed(time.Now().UnixNano()) // Ensures unique randomness
+	vars := GetVariables()
+	geneticAlgorithm(vars)
 }
