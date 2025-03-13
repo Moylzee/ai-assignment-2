@@ -22,6 +22,7 @@ type Variables struct {
 	NumGenerations int
 	TournamentSize int
 	MutationRate   float64
+	Noise float64
 }
 
 func GetVariables() Variables {
@@ -31,6 +32,7 @@ func GetVariables() Variables {
 		NumGenerations: 500,
 		TournamentSize: 5,
 		MutationRate:   0.1,
+		Noise: 0.0,
 	}
 }
 
@@ -83,24 +85,32 @@ func initPopulation(populationSize int) []Individual {
 	return population
 }
 
-func playMatch(s1, s2 func(string) string, rounds int) float64 {
+func playMatch(s1, s2 func(string) string, rounds int, noise float64) float64 {
 	var score int
 	var lastMove1, lastMove2 string
-
+	var m1, m2 string
 	for i := 0; i < rounds; i++ {
-		m1, m2 := s1(lastMove2), s2(lastMove1)
-		score += payoffMatrix[m1][m2][0]
+
+		// Introduce noise: random choice if noise < random value
+		if rand.Float64() > noise {
+			m1 := []string{"C", "D"}[rand.Intn(2)]
+			m2 := []string{"C", "D"}[rand.Intn(2)]
+			score += payoffMatrix[m1][m2][0]
+		} else {
+			m1, m2 := s1(lastMove2), s2(lastMove1)
+			score += payoffMatrix[m1][m2][0]
+		}
 		lastMove1, lastMove2 = m1, m2
 	}
 	return float64(score) / float64(rounds)
 }
 
 
-func evaluateFitness(population []Individual, fixedStrategies []func(string) string) []Individual {
+func evaluateFitness(population []Individual, fixedStrategies []func(string) string, noise float64) []Individual {
 	for i := range population {
 		population[i].Score = 0
 		for _, fixedStrategy := range fixedStrategies {
-			score := playMatch(getStrategy(population[i].Strategy), fixedStrategy, 50)
+			score := playMatch(getStrategy(population[i].Strategy), fixedStrategy, 50, noise)
 			population[i].Score += score		
 		}
 	}
@@ -163,7 +173,7 @@ func geneticAlgorithm(vars Variables) {
 	writer.Write([]string{"Generation", "AverageFitness"})
 
 	for gen := 0; gen < vars.NumGenerations; gen++ {
-		population = evaluateFitness(population, fixedStrategies)
+		population = evaluateFitness(population, fixedStrategies, vars.Noise)
 
 		// Calculate average fitness
 		var totalFitness float64
