@@ -9,19 +9,19 @@ import (
 	"time"
 )
 
+// Global Variables
 const (
 	AlwaysCooperateStr = "AlwaysCooperate"
 	AlwaysDefectStr    = "AlwaysDefect"
 	GrimTriggerStr     = "GrimTrigger"
 	TitForTatStr       = "TitForTat"
 )
-
-
 var (
 	fixedStrategies = []func(string) string{AlwaysCooperate, AlwaysDefect, TitForTat, GrimTrigger}
 	strategies = []string{AlwaysCooperateStr, AlwaysDefectStr, TitForTatStr, GrimTriggerStr}
 )
 
+// Struct to intialize the variables
 type Variables struct {
 	Population     int
 	NumGenerations int
@@ -29,7 +29,7 @@ type Variables struct {
 	MutationRate   float64
 	Noise          float64
 }
-
+// Function to load the variables
 func GetVariables() Variables {
 	return Variables{
 		Population:     100,
@@ -39,17 +39,18 @@ func GetVariables() Variables {
 		Noise:          0.8,
 	}
 }
-
+// Individual struct to store the strategies and score (Fitness)
 type Individual struct {
 	Strategies []string
 	Score      float64
 }
-
+// Payoff Matrix for the game
 var payoffMatrix = map[string]map[string][2]int{
 	"C": {"C": {3, 3}, "D": {0, 5}},
 	"D": {"C": {5, 0}, "D": {1, 1}},
 }
 
+// Fixed Strategies
 func AlwaysCooperate(_ string) string { return "C" }
 func AlwaysDefect(_ string) string    { return "D" }
 func TitForTat(lastMove string) string {
@@ -65,6 +66,7 @@ func GrimTrigger(lastMove string) string {
 	return "C"
 }
 
+// Function used to call the strategy to use 
 func getStrategyFunction(strategy string) func(string) string {
 	switch strategy {
 	case AlwaysCooperateStr:
@@ -80,6 +82,7 @@ func getStrategyFunction(strategy string) func(string) string {
 	return TitForTat
 }
 
+// Function to initialize the population
 func initPopulation(populationSize int) []Individual {
 	population := make([]Individual, populationSize)
 
@@ -98,6 +101,16 @@ func initPopulation(populationSize int) []Individual {
 	return population
 }
 
+/*
+* Function to play the match between the agent and the opponent
+* @Params:
+* agent: Individual
+* opponent: The opponent the agent is playing against
+* rounds: Number of rounds to play
+* Noise: The chance of noise in the game
+* @Return:
+* Score: The score of the agent
+*/
 func playMatch(agent Individual, opponent func(string) string, rounds int, noise float64) float64 {
 	var score int
 	var lastMove1, lastMove2 string
@@ -117,6 +130,14 @@ func playMatch(agent Individual, opponent func(string) string, rounds int, noise
 	return float64(score) / float64(rounds)
 }
 
+/* Function to evaluate the fitness of the population
+* @Params:
+* population: The population to evaluate
+* fixedStrategies: The fixed strategies to play against
+* noise: The noise percentage in the game
+* @Return:
+* population: The population with updated fitness scores
+*/
 func evaluateFitness(population []Individual, fixedStrategies []func(string) string, noise float64) []Individual {
 	for i := range population {
 		population[i].Score = 0
@@ -128,11 +149,25 @@ func evaluateFitness(population []Individual, fixedStrategies []func(string) str
 	return population
 }
 
+/* Function to perform crossover between two parents
+* @Params:
+* parent1: The first parent
+* parent2: The second parent
+* @Return:
+* child: The child after crossover
+*/
 func crossover(parent1, parent2 Individual) Individual {
 	childStrategies := append(parent1.Strategies[:len(parent1.Strategies)/2], parent2.Strategies[len(parent2.Strategies)/2:]...)
 	return Individual{Strategies: childStrategies}
 }
 
+/* Function to mutate the individual if the mutation rate is met
+* @Params:
+* ind: The individual to mutate
+* mutationRate: The rate of mutation
+* @Return:
+* ind: The mutated individual
+*/
 func mutate(ind Individual, mutationRate float64) Individual {
 	if rand.Float64() < mutationRate {
 		newStrategy := strategies[rand.Intn(len(strategies))]
@@ -141,6 +176,13 @@ func mutate(ind Individual, mutationRate float64) Individual {
 	return ind
 }
 
+/* Function to perform tournament selection
+* @Params:
+* population: The population to select from
+* tournamentSize: The size of the tournament
+* @Return:
+* best: The best individual from the tournament
+*/
 func TournamentSelection(population []Individual, tournamentSize int) Individual {
 	best := population[rand.Intn(len(population))]
 	for i := 1; i < tournamentSize; i++ {
@@ -152,6 +194,14 @@ func TournamentSelection(population []Individual, tournamentSize int) Individual
 	return best
 }
 
+/* Function to evolve the population
+* @Params:
+* population: The population to evolve
+* tournamentSize: The size of the tournament
+* mutationRate: The rate of mutation
+* @Return:
+* newPopulation: The new population after evolution
+*/
 func evolvePopulation(population []Individual, tournamentSize int, mutationRate float64) []Individual {
 	newPopulation := make([]Individual, len(population))
 	for i := range population {
@@ -164,9 +214,15 @@ func evolvePopulation(population []Individual, tournamentSize int, mutationRate 
 	return newPopulation
 }
 
+/* Function to run the genetic algorithm
+* @Params:
+* vars: The variables to use for the genetic algorithm
+*/
 func geneticAlgorithm(vars Variables) {
+	// INtiialize the population
 	population := initPopulation(vars.Population)
 
+	// Create the file to store the fitness data
 	file, err := os.Create("fitness_data.csv")
 	if err != nil {
 		fmt.Println("Error creating file:", err)
@@ -178,6 +234,9 @@ func geneticAlgorithm(vars Variables) {
 	defer writer.Flush()
 	writer.Write([]string{"Generation", "AverageFitness"})
 
+	// Run the genetic algorithm
+	// Iterate over the number of generations and evaluate the fitness of the population
+	// Evolve the population
 	for gen := 0; gen < vars.NumGenerations; gen++ {
 		population = evaluateFitness(population, fixedStrategies, vars.Noise)
 
